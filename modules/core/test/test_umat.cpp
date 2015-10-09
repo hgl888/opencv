@@ -173,7 +173,7 @@ TEST_P(UMatBasicTests, base)
     ASSERT_EQ(ub.total(), total);
 }
 
-TEST_P(UMatBasicTests, DISABLED_copyTo)
+TEST_P(UMatBasicTests, copyTo)
 {
     int i;
     if(useRoi)
@@ -243,9 +243,11 @@ TEST_P(UMatBasicTests, GetUMat)
         EXPECT_MAT_NEAR(ub, ua, 0);
     }
     {
-        Mat b;
-        b = a.getUMat(ACCESS_RW).getMat(ACCESS_RW);
-        EXPECT_MAT_NEAR(b, a, 0);
+        UMat u = a.getUMat(ACCESS_RW);
+        {
+            Mat b = u.getMat(ACCESS_RW);
+            EXPECT_MAT_NEAR(b, a, 0);
+        }
     }
     {
         Mat b;
@@ -253,13 +255,15 @@ TEST_P(UMatBasicTests, GetUMat)
         EXPECT_MAT_NEAR(b, a, 0);
     }
     {
-        UMat ub;
-        ub = ua.getMat(ACCESS_RW).getUMat(ACCESS_RW);
-        EXPECT_MAT_NEAR(ub, ua, 0);
+        Mat m = ua.getMat(ACCESS_RW);
+        {
+            UMat ub = m.getUMat(ACCESS_RW);
+            EXPECT_MAT_NEAR(ub, ua, 0);
+        }
     }
 }
 
-INSTANTIATE_TEST_CASE_P(UMat, UMatBasicTests, Combine(testing::Values(CV_8U), testing::Values(1, 2),
+INSTANTIATE_TEST_CASE_P(UMat, UMatBasicTests, Combine(testing::Values(CV_8U, CV_64F), testing::Values(1, 2),
     testing::Values(cv::Size(1, 1), cv::Size(1, 128), cv::Size(128, 1), cv::Size(128, 128), cv::Size(640, 480)), Bool()));
 
 //////////////////////////////////////////////////////////////// Reshape ////////////////////////////////////////////////////////////////////////
@@ -349,6 +353,73 @@ TEST_P(UMatTestReshape, reshape)
 }
 
 INSTANTIATE_TEST_CASE_P(UMat, UMatTestReshape, Combine(OCL_ALL_DEPTHS, OCL_ALL_CHANNELS, UMAT_TEST_SIZES, Bool() ));
+
+static void check_ndim_shape(const cv::UMat &mat, int cn, int ndims, const int *sizes)
+{
+    EXPECT_EQ(mat.channels(), cn);
+    EXPECT_EQ(mat.dims, ndims);
+
+    if (mat.dims != ndims)
+        return;
+
+    for (int i = 0; i < ndims; i++)
+        EXPECT_EQ(mat.size[i], sizes[i]);
+}
+
+TEST(UMatTestReshape, reshape_ndims_2)
+{
+    const cv::UMat A(8, 16, CV_8UC3);
+    cv::UMat B;
+
+    {
+        int new_sizes_mask[] = { 0, 3, 4, 4 };
+        int new_sizes_real[] = { 8, 3, 4, 4 };
+        ASSERT_NO_THROW(B = A.reshape(1, 4, new_sizes_mask));
+        check_ndim_shape(B, 1, 4, new_sizes_real);
+    }
+    {
+        int new_sizes[] = { 16, 8 };
+        ASSERT_NO_THROW(B = A.reshape(0, 2, new_sizes));
+        check_ndim_shape(B, 3, 2, new_sizes);
+        EXPECT_EQ(B.rows, new_sizes[0]);
+        EXPECT_EQ(B.cols, new_sizes[1]);
+    }
+    {
+        int new_sizes[] = { 2, 5, 1, 3 };
+        cv::UMat A_sliced = A(cv::Range::all(), cv::Range(0, 15));
+        ASSERT_ANY_THROW(A_sliced.reshape(4, 4, new_sizes));
+    }
+}
+
+TEST(UMatTestReshape, reshape_ndims_4)
+{
+    const int sizes[] = { 2, 6, 4, 12 };
+    const cv::UMat A(4, sizes, CV_8UC3);
+    cv::UMat B;
+
+    {
+        int new_sizes_mask[] = { 0, 864 };
+        int new_sizes_real[] = { 2, 864 };
+        ASSERT_NO_THROW(B = A.reshape(1, 2, new_sizes_mask));
+        check_ndim_shape(B, 1, 2, new_sizes_real);
+        EXPECT_EQ(B.rows, new_sizes_real[0]);
+        EXPECT_EQ(B.cols, new_sizes_real[1]);
+    }
+    {
+        int new_sizes_mask[] = { 4, 0, 0, 2, 3 };
+        int new_sizes_real[] = { 4, 6, 4, 2, 3 };
+        ASSERT_NO_THROW(B = A.reshape(0, 5, new_sizes_mask));
+        check_ndim_shape(B, 3, 5, new_sizes_real);
+    }
+    {
+        int new_sizes_mask[] = { 1, 1 };
+        ASSERT_ANY_THROW(A.reshape(0, 2, new_sizes_mask));
+    }
+    {
+        int new_sizes_mask[] = { 4, 6, 3, 3, 0 };
+        ASSERT_ANY_THROW(A.reshape(0, 5, new_sizes_mask));
+    }
+}
 
 ////////////////////////////////////////////////////////////////// ROI testing ///////////////////////////////////////////////////////////////
 
@@ -548,31 +619,49 @@ PARAM_TEST_CASE(getUMat, int, int, Size, bool)
         cv::ocl::setUseOpenCL(isOpenCL_enabled);
     }
 
+    // UMat created from user allocated host memory (USE_HOST_PTR)
+    void custom_ptr_test(size_t align_base, size_t align_offset)
+    {
+        void* pData_allocated = new unsigned char [size.area() * CV_ELEM_SIZE(type) + (align_base + align_offset)];
+        void* pData = (char*)alignPtr(pData_allocated, (int)align_base) + align_offset;
+        size_t step = size.width * CV_ELEM_SIZE(type);
+
+        {
+            Mat m = Mat(size, type, pData, step);
+            m.setTo(cv::Scalar::all(2));
+
+            UMat u = m.getUMat(ACCESS_RW);
+            cv::add(u, cv::Scalar::all(2), u);
+
+            Mat d = u.getMat(ACCESS_READ);
+
+            Mat expected(m.size(), m.type(), cv::Scalar::all(4));
+            double norm = cvtest::norm(d, expected, NORM_INF);
+
+            EXPECT_EQ(0, norm);
+        }
+
+        delete[] (unsigned char*)pData_allocated;
+    }
+
 private:
     bool useOpenCL;
     bool isOpenCL_enabled;
 };
 
-// UMat created from user allocated host memory (USE_HOST_PTR)
-TEST_P(getUMat, custom_ptr)
+TEST_P(getUMat, custom_ptr_align_4Kb)
 {
-    void* pData = new unsigned char [size.area() * CV_ELEM_SIZE(type)];
-    size_t step = size.width * CV_ELEM_SIZE(type);
+    custom_ptr_test(4096, 0);
+}
 
-    Mat m = Mat(size, type, pData, step);
-    m.setTo(cv::Scalar::all(2));
+TEST_P(getUMat, custom_ptr_align_64b)
+{
+    custom_ptr_test(4096, 64);
+}
 
-    UMat u = m.getUMat(ACCESS_RW);
-    cv::add(u, cv::Scalar::all(2), u);
-
-    Mat d = u.getMat(ACCESS_READ);
-
-    Mat expected(m.size(), m.type(), cv::Scalar::all(4));
-    double norm = cvtest::norm(d, expected, NORM_INF);
-
-    EXPECT_EQ(0, norm);
-
-    delete[] (unsigned char*)pData;
+TEST_P(getUMat, custom_ptr_align_none)
+{
+    custom_ptr_test(4096, cv::alignSize(CV_ELEM_SIZE(type), 4));
 }
 
 TEST_P(getUMat, self_allocated)
@@ -592,7 +681,7 @@ TEST_P(getUMat, self_allocated)
 }
 
 INSTANTIATE_TEST_CASE_P(UMat, getUMat, Combine(
-        Values(CV_8U), // depth
+        Values(CV_8U, CV_64F), // depth
         Values(1, 3), // channels
         Values(cv::Size(1, 1), cv::Size(255, 255), cv::Size(256, 256)), // Size
         Bool() // useOpenCL
@@ -995,7 +1084,7 @@ TEST(UMat, unmap_in_class)
                 Mat dst;
                 m.convertTo(dst, CV_32FC1);
                 // some additional CPU-based per-pixel processing into dst
-                intermediateResult = dst.getUMat(ACCESS_READ);
+                intermediateResult = dst.getUMat(ACCESS_READ); // this violates lifetime of base(dst) / derived (intermediateResult) objects. Use copyTo?
                 std::cout << "data processed..." << std::endl;
             } // problem is here: dst::~Mat()
             std::cout << "leave ProcessData()" << std::endl;
@@ -1035,8 +1124,9 @@ TEST(UMat, map_unmap_counting)
     Mat m(Size(10, 10), CV_8UC1);
     UMat um = m.getUMat(ACCESS_RW);
     {
-        Mat d = um.getMat(ACCESS_RW);
-        d.release();
+        Mat d1 = um.getMat(ACCESS_RW);
+        Mat d2 = um.getMat(ACCESS_RW);
+        d1.release();
     }
     void* h = NULL;
     EXPECT_NO_THROW(h = um.handle(ACCESS_RW));
@@ -1182,5 +1272,61 @@ TEST(UMat, DISABLED_Test_same_behaviour_write_and_write)
     ASSERT_TRUE(exceptionDetected); // data race
 }
 
+TEST(UMat, mat_umat_sync)
+{
+    UMat u(10, 10, CV_8UC1, Scalar(1));
+    {
+        Mat m = u.getMat(ACCESS_RW).reshape(1);
+        m.setTo(Scalar(255));
+    }
+
+    UMat uDiff;
+    compare(u, 255, uDiff, CMP_NE);
+    ASSERT_EQ(0, countNonZero(uDiff));
+}
+
+TEST(UMat, testTempObjects_UMat)
+{
+    UMat u(10, 10, CV_8UC1, Scalar(1));
+    {
+        UMat u2 = u.getMat(ACCESS_RW).getUMat(ACCESS_RW);
+        u2.setTo(Scalar(255));
+    }
+
+    UMat uDiff;
+    compare(u, 255, uDiff, CMP_NE);
+    ASSERT_EQ(0, countNonZero(uDiff));
+}
+
+TEST(UMat, testTempObjects_Mat)
+{
+    Mat m(10, 10, CV_8UC1, Scalar(1));
+    {
+        Mat m2;
+        ASSERT_ANY_THROW(m2 = m.getUMat(ACCESS_RW).getMat(ACCESS_RW));
+    }
+}
+
+TEST(UMat, testWrongLifetime_UMat)
+{
+    UMat u(10, 10, CV_8UC1, Scalar(1));
+    {
+        UMat u2 = u.getMat(ACCESS_RW).getUMat(ACCESS_RW);
+        u.release(); // base object
+        u2.release(); // derived object, should show warning message
+    }
+}
+
+TEST(UMat, testWrongLifetime_Mat)
+{
+    Mat m(10, 10, CV_8UC1, Scalar(1));
+    {
+        UMat u = m.getUMat(ACCESS_RW);
+        Mat m2 = u.getMat(ACCESS_RW);
+        m.release(); // base object
+        m2.release(); // map of derived object
+        u.release(); // derived object, should show warning message
+    }
+}
 
 } } // namespace cvtest::ocl
