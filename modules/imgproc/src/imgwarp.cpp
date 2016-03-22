@@ -50,6 +50,8 @@
 #include "precomp.hpp"
 #include "opencl_kernels_imgproc.hpp"
 
+using namespace cv;
+
 namespace cv
 {
 #if IPP_VERSION_X100 >= 710
@@ -2900,7 +2902,7 @@ static bool ocl_resize( InputArray _src, OutputArray _dst, Size dsize,
 
     Size ssize = src.size();
     ocl::Kernel k;
-    size_t globalsize[] = { dst.cols, dst.rows };
+    size_t globalsize[] = { (size_t)dst.cols, (size_t)dst.rows };
 
     ocl::Image2D srcImage;
 
@@ -3257,6 +3259,12 @@ void cv::resize( InputArray _src, OutputArray _dst, Size dsize,
     Mat src = _src.getMat();
     _dst.create(dsize, src.type());
     Mat dst = _dst.getMat();
+
+    if (dsize == ssize) {
+      // Source and destination are of same size. Use simple copy.
+      src.copyTo(dst);
+      return;
+    }
 
 #ifdef HAVE_TEGRA_OPTIMIZATION
     if (tegra::useTegra() && tegra::resize(src, dst, (float)inv_scale_x, (float)inv_scale_y, interpolation))
@@ -4566,7 +4574,7 @@ static bool ocl_remap(InputArray _src, OutputArray _dst, InputArray _map1, Input
     else
         k.args(srcarg, dstarg, map1arg, ocl::KernelArg::ReadOnlyNoSize(map2), scalararg);
 
-    size_t globalThreads[2] = { dst.cols, (dst.rows + rowsPerWI - 1) / rowsPerWI };
+    size_t globalThreads[2] = { (size_t)dst.cols, ((size_t)dst.rows + rowsPerWI - 1) / rowsPerWI };
     return k.run(2, globalThreads, NULL, false);
 }
 
@@ -5555,7 +5563,7 @@ static bool ocl_warpTransform(InputArray _src, OutputArray _dst, InputArray _M0,
     k.args(ocl::KernelArg::ReadOnly(src), ocl::KernelArg::WriteOnly(dst), ocl::KernelArg::PtrReadOnly(M0),
            ocl::KernelArg(0, 0, 0, 0, borderBuf, CV_ELEM_SIZE(sctype)));
 
-    size_t globalThreads[2] = { dst.cols, (dst.rows + rowsPerWI - 1) / rowsPerWI };
+    size_t globalThreads[2] = { (size_t)dst.cols, ((size_t)dst.rows + rowsPerWI - 1) / rowsPerWI };
     return k.run(2, globalThreads, NULL, false);
 }
 
@@ -6469,11 +6477,13 @@ CV_IMPL void
 cvLogPolar( const CvArr* srcarr, CvArr* dstarr,
             CvPoint2D32f center, double M, int flags )
 {
+    Mat src_with_border; // don't scope this variable (it holds image data)
+
     cv::Ptr<CvMat> mapx, mapy;
 
     CvMat srcstub, *src = cvGetMat(srcarr, &srcstub);
     CvMat dststub, *dst = cvGetMat(dstarr, &dststub);
-    CvSize ssize, dsize;
+    CvSize dsize;
 
     if( !CV_ARE_TYPES_EQ( src, dst ))
         CV_Error( CV_StsUnmatchedFormats, "" );
@@ -6481,7 +6491,6 @@ cvLogPolar( const CvArr* srcarr, CvArr* dstarr,
     if( M <= 0 )
         CV_Error( CV_StsOutOfRange, "M should be >0" );
 
-    ssize = cvGetMatSize(src);
     dsize = cvGetMatSize(dst);
 
     mapx.reset(cvCreateMat( dsize.height, dsize.width, CV_32F ));
@@ -6494,7 +6503,7 @@ cvLogPolar( const CvArr* srcarr, CvArr* dstarr,
         double* exp_tab = _exp_tab;
 
         for( rho = 0; rho < dst->width; rho++ )
-            exp_tab[rho] = std::exp(rho/M);
+            exp_tab[rho] = std::exp(rho/M) - 1.0;
 
         for( phi = 0; phi < dsize.height; phi++ )
         {
@@ -6516,6 +6525,13 @@ cvLogPolar( const CvArr* srcarr, CvArr* dstarr,
     }
     else
     {
+        const int ANGLE_BORDER = 1;
+        Mat src_ = cv::cvarrToMat(src);
+        cv::copyMakeBorder(src_, src_with_border, ANGLE_BORDER, ANGLE_BORDER, 0, 0, BORDER_WRAP);
+        srcstub = src_with_border; src = &srcstub;
+        CvSize ssize = cvGetMatSize(src);
+        ssize.height -= 2*ANGLE_BORDER;
+
         int x, y;
         CvMat bufx, bufy, bufp, bufa;
         double ascale = ssize.height/(2*CV_PI);
@@ -6552,7 +6568,7 @@ cvLogPolar( const CvArr* srcarr, CvArr* dstarr,
                 double phi = bufa.data.fl[x]*ascale;
 
                 mx[x] = (float)rho;
-                my[x] = (float)phi;
+                my[x] = (float)phi + ANGLE_BORDER;
             }
 #else
             for( x = 0; x < dsize.width; x++ )
@@ -6593,11 +6609,13 @@ CV_IMPL
 void cvLinearPolar( const CvArr* srcarr, CvArr* dstarr,
             CvPoint2D32f center, double maxRadius, int flags )
 {
+    Mat src_with_border; // don't scope this variable (it holds image data)
+
     cv::Ptr<CvMat> mapx, mapy;
 
     CvMat srcstub, *src = (CvMat*)srcarr;
     CvMat dststub, *dst = (CvMat*)dstarr;
-    CvSize ssize, dsize;
+    CvSize dsize;
 
     src = cvGetMat( srcarr, &srcstub,0,0 );
     dst = cvGetMat( dstarr, &dststub,0,0 );
@@ -6605,10 +6623,7 @@ void cvLinearPolar( const CvArr* srcarr, CvArr* dstarr,
     if( !CV_ARE_TYPES_EQ( src, dst ))
         CV_Error( CV_StsUnmatchedFormats, "" );
 
-    ssize.width = src->cols;
-    ssize.height = src->rows;
-    dsize.width = dst->cols;
-    dsize.height = dst->rows;
+    dsize = cvGetMatSize(dst);
 
     mapx.reset(cvCreateMat( dsize.height, dsize.width, CV_32F ));
     mapy.reset(cvCreateMat( dsize.height, dsize.width, CV_32F ));
@@ -6626,7 +6641,7 @@ void cvLinearPolar( const CvArr* srcarr, CvArr* dstarr,
 
             for( rho = 0; rho < dsize.width; rho++ )
             {
-                double r = maxRadius*(rho+1)/dsize.width;
+                double r = maxRadius*rho/dsize.width;
                 double x = r*cp + center.x;
                 double y = r*sp + center.y;
 
@@ -6637,6 +6652,13 @@ void cvLinearPolar( const CvArr* srcarr, CvArr* dstarr,
     }
     else
     {
+        const int ANGLE_BORDER = 1;
+        Mat src_ = cv::cvarrToMat(src);
+        cv::copyMakeBorder(src_, src_with_border, ANGLE_BORDER, ANGLE_BORDER, 0, 0, BORDER_WRAP);
+        srcstub = src_with_border; src = &srcstub;
+        CvSize ssize = cvGetMatSize(src);
+        ssize.height -= 2*ANGLE_BORDER;
+
         int x, y;
         CvMat bufx, bufy, bufp, bufa;
         const double ascale = ssize.height/(2*CV_PI);
@@ -6664,14 +6686,11 @@ void cvLinearPolar( const CvArr* srcarr, CvArr* dstarr,
             cvCartToPolar( &bufx, &bufy, &bufp, &bufa, 0 );
 
             for( x = 0; x < dsize.width; x++ )
-                bufp.data.fl[x] += 1.f;
-
-            for( x = 0; x < dsize.width; x++ )
             {
                 double rho = bufp.data.fl[x]*pscale;
                 double phi = bufa.data.fl[x]*ascale;
                 mx[x] = (float)rho;
-                my[x] = (float)phi;
+                my[x] = (float)phi + ANGLE_BORDER;
             }
         }
     }

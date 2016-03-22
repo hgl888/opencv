@@ -1,10 +1,18 @@
 # ----------------------------------------------------------------------------
 #  CMake file for java support
 # ----------------------------------------------------------------------------
-if(IOS OR WINRT OR NOT PYTHON_DEFAULT_AVAILABLE OR NOT ANT_EXECUTABLE OR NOT (JNI_FOUND OR (ANDROID AND ANDROID_NATIVE_API_LEVEL GREATER 7))
+if(APPLE_FRAMEWORK OR WINRT OR NOT PYTHON_DEFAULT_AVAILABLE OR NOT ANT_EXECUTABLE
+    OR NOT (JNI_FOUND OR (ANDROID AND ANDROID_NATIVE_API_LEVEL GREATER 7))
     OR BUILD_opencv_world
     )
   ocv_module_disable(java)
+endif()
+
+if(EXISTS ${CMAKE_BINARY_DIR}/src)
+  execute_process(COMMAND ${CMAKE_COMMAND} -E remove_directory "${CMAKE_BINARY_DIR}/src")
+endif()
+if(EXISTS ${CMAKE_BINARY_DIR}/gen)
+  execute_process(COMMAND ${CMAKE_COMMAND} -E remove_directory "${CMAKE_BINARY_DIR}/gen")
 endif()
 
 set(the_description "The java bindings")
@@ -301,7 +309,7 @@ if(ANDROID)
     # build the library project
     # normally we should do this after a native part, but for a library project we can build the java part first
     add_custom_command(OUTPUT "${JAR_FILE}" "${JAR_FILE}.dephelper"
-                       COMMAND ${ANT_EXECUTABLE} -q -noinput -k debug
+                       COMMAND ${ANT_EXECUTABLE} -q -noinput -k debug -Djava.target=1.6 -Djava.source=1.6
                        COMMAND ${CMAKE_COMMAND} -E touch "${JAR_FILE}.dephelper" # can not rely on classes.jar because different versions of SDK update timestamp at different times
                        WORKING_DIRECTORY "${OpenCV_BINARY_DIR}"
                        DEPENDS ${step3_depends}

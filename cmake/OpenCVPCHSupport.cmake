@@ -83,11 +83,6 @@ MACRO(_PCH_GET_COMPILE_FLAGS _out_compile_flags)
         endif()
     ENDFOREACH(item)
 
-    GET_DIRECTORY_PROPERTY(_directory_flags DEFINITIONS)
-    GET_DIRECTORY_PROPERTY(_global_definitions DIRECTORY ${OpenCV_SOURCE_DIR} DEFINITIONS)
-    #MESSAGE("_directory_flags ${_directory_flags} ${_global_definitions}" )
-    LIST(APPEND ${_out_compile_flags} ${_directory_flags})
-    LIST(APPEND ${_out_compile_flags} ${_global_definitions})
     LIST(APPEND ${_out_compile_flags} ${CMAKE_CXX_FLAGS})
 
     SEPARATE_ARGUMENTS(${_out_compile_flags})
@@ -169,9 +164,9 @@ MACRO(_PCH_GET_TARGET_COMPILE_FLAGS _cflags  _header_name _pch_path _dowarn )
         # if you have different versions of the headers for different build types
         # you may set _pch_dowarn
         IF (_dowarn)
-            SET(${_cflags} "${PCH_ADDITIONAL_COMPILER_FLAGS} -include \"${CMAKE_CURRENT_BINARY_DIR}/${_header_name}\" -Winvalid-pch " )
+            SET(${_cflags} "${PCH_ADDITIONAL_COMPILER_FLAGS} -Winvalid-pch " )
         ELSE (_dowarn)
-            SET(${_cflags} "${PCH_ADDITIONAL_COMPILER_FLAGS} -include \"${CMAKE_CURRENT_BINARY_DIR}/${_header_name}\" " )
+            SET(${_cflags} "${PCH_ADDITIONAL_COMPILER_FLAGS} " )
         ENDIF (_dowarn)
 
     ELSE(CMAKE_COMPILER_IS_GNUCXX)

@@ -52,6 +52,7 @@ namespace cv
 
 /////////////////////// ocl functions for BFMatcher ///////////////////////////
 
+#ifdef HAVE_OPENCL
 static void ensureSizeIsEnough(int rows, int cols, int type, UMat &m)
 {
     if (m.type() == type && m.rows >= rows && m.cols >= cols)
@@ -97,8 +98,8 @@ static bool ocl_matchSingle(InputArray query, InputArray train,
     if(k.empty())
         return false;
 
-    size_t globalSize[] = {(query.size().height + block_size - 1) / block_size * block_size, block_size};
-    size_t localSize[] = {block_size, block_size};
+    size_t globalSize[] = {((size_t)query.size().height + block_size - 1) / block_size * block_size, (size_t)block_size};
+    size_t localSize[] = {(size_t)block_size, (size_t)block_size};
 
     int idx = 0;
     idx = k.set(idx, ocl::KernelArg::PtrReadOnly(uquery));
@@ -197,8 +198,8 @@ static bool ocl_knnMatchSingle(InputArray query, InputArray train, UMat &trainId
     if(k.empty())
         return false;
 
-    size_t globalSize[] = {(query_rows + block_size - 1) / block_size * block_size, block_size};
-    size_t localSize[] = {block_size, block_size};
+    size_t globalSize[] = {((size_t)query_rows + block_size - 1) / block_size * block_size, (size_t)block_size};
+    size_t localSize[] = {(size_t)block_size, (size_t)block_size};
 
     int idx = 0;
     idx = k.set(idx, ocl::KernelArg::PtrReadOnly(uquery));
@@ -306,8 +307,8 @@ static bool ocl_radiusMatchSingle(InputArray query, InputArray train,
     if (k.empty())
         return false;
 
-    size_t globalSize[] = {(train_rows + block_size - 1) / block_size * block_size, (query_rows + block_size - 1) / block_size * block_size};
-    size_t localSize[] = {block_size, block_size};
+    size_t globalSize[] = {((size_t)train_rows + block_size - 1) / block_size * block_size, ((size_t)query_rows + block_size - 1) / block_size * block_size};
+    size_t localSize[] = {(size_t)block_size, (size_t)block_size};
 
     int idx = 0;
     idx = k.set(idx, ocl::KernelArg::PtrReadOnly(uquery));
@@ -390,6 +391,7 @@ static bool ocl_radiusMatchDownload(const UMat &trainIdx, const UMat &distance, 
 
     return ocl_radiusMatchConvert(trainIdxCPU, distanceCPU, nMatchesCPU, matches, compactResult);
 }
+#endif
 
 /****************************************************************************************\
 *                                      DescriptorMatcher                                 *
@@ -515,30 +517,32 @@ DescriptorMatcher::~DescriptorMatcher()
 
 void DescriptorMatcher::add( InputArrayOfArrays _descriptors )
 {
-    if(_descriptors.isUMatVector())
+    if( _descriptors.isUMatVector() )
     {
         std::vector<UMat> descriptors;
-        _descriptors.getUMatVector(descriptors);
+        _descriptors.getUMatVector( descriptors );
         utrainDescCollection.insert( utrainDescCollection.end(), descriptors.begin(), descriptors.end() );
     }
-    else if(_descriptors.isUMat())
+    else if( _descriptors.isUMat() )
     {
         std::vector<UMat> descriptors = std::vector<UMat>(1, _descriptors.getUMat());
         utrainDescCollection.insert( utrainDescCollection.end(), descriptors.begin(), descriptors.end() );
     }
-    else if(_descriptors.isMatVector())
+    else if( _descriptors.isMatVector() )
     {
         std::vector<Mat> descriptors;
         _descriptors.getMatVector(descriptors);
         trainDescCollection.insert( trainDescCollection.end(), descriptors.begin(), descriptors.end() );
     }
-    else if(_descriptors.isMat())
+    else if( _descriptors.isMat() )
     {
         std::vector<Mat> descriptors = std::vector<Mat>(1, _descriptors.getMat());
         trainDescCollection.insert( trainDescCollection.end(), descriptors.begin(), descriptors.end() );
     }
     else
+    {
         CV_Assert( _descriptors.isUMat() || _descriptors.isUMatVector() || _descriptors.isMat() || _descriptors.isMatVector() );
+    }
 }
 
 const std::vector<Mat>& DescriptorMatcher::getTrainDescriptors() const
@@ -693,6 +697,7 @@ Ptr<DescriptorMatcher> BFMatcher::clone( bool emptyTrainData ) const
     return matcher;
 }
 
+#ifdef HAVE_OPENCL
 static bool ocl_match(InputArray query, InputArray _train, std::vector< std::vector<DMatch> > &matches, int dstType)
 {
     UMat trainIdx, distance;
@@ -714,6 +719,7 @@ static bool ocl_knnMatch(InputArray query, InputArray _train, std::vector< std::
         return false;
     return true;
 }
+#endif
 
 void BFMatcher::knnMatchImpl( InputArray _queryDescriptors, std::vector<std::vector<DMatch> >& matches, int knn,
                              InputArrayOfArrays _masks, bool compactResult )
@@ -744,6 +750,7 @@ void BFMatcher::knnMatchImpl( InputArray _queryDescriptors, std::vector<std::vec
         utrainDescCollection.clear();
     }
 
+#ifdef HAVE_OPENCL
     int trainDescVectorSize = trainDescCollection.empty() ? (int)utrainDescCollection.size() : (int)trainDescCollection.size();
     Size trainDescSize = trainDescCollection.empty() ? utrainDescCollection[0].size() : trainDescCollection[0].size();
     int trainDescOffset = trainDescCollection.empty() ? (int)utrainDescCollection[0].offset : 0;
@@ -791,6 +798,7 @@ void BFMatcher::knnMatchImpl( InputArray _queryDescriptors, std::vector<std::vec
             }
         }
     }
+#endif
 
     Mat queryDescriptors = _queryDescriptors.getMat();
     if(trainDescCollection.empty() && !utrainDescCollection.empty())
@@ -851,6 +859,7 @@ void BFMatcher::knnMatchImpl( InputArray _queryDescriptors, std::vector<std::vec
     }
 }
 
+#ifdef HAVE_OPENCL
 static bool ocl_radiusMatch(InputArray query, InputArray _train, std::vector< std::vector<DMatch> > &matches,
         float maxDistance, int dstType, bool compactResult)
 {
@@ -861,6 +870,7 @@ static bool ocl_radiusMatch(InputArray query, InputArray _train, std::vector< st
         return false;
     return true;
 }
+#endif
 
 void BFMatcher::radiusMatchImpl( InputArray _queryDescriptors, std::vector<std::vector<DMatch> >& matches,
                                 float maxDistance, InputArrayOfArrays _masks, bool compactResult )
@@ -888,6 +898,7 @@ void BFMatcher::radiusMatchImpl( InputArray _queryDescriptors, std::vector<std::
         utrainDescCollection.clear();
     }
 
+#ifdef HAVE_OPENCL
     int trainDescVectorSize = trainDescCollection.empty() ? (int)utrainDescCollection.size() : (int)trainDescCollection.size();
     Size trainDescSize = trainDescCollection.empty() ? utrainDescCollection[0].size() : trainDescCollection[0].size();
     int trainDescOffset = trainDescCollection.empty() ? (int)utrainDescCollection[0].offset : 0;
@@ -913,6 +924,7 @@ void BFMatcher::radiusMatchImpl( InputArray _queryDescriptors, std::vector<std::
             }
         }
     }
+#endif
 
     Mat queryDescriptors = _queryDescriptors.getMat();
     if(trainDescCollection.empty() && !utrainDescCollection.empty())
@@ -1022,12 +1034,37 @@ FlannBasedMatcher::FlannBasedMatcher( const Ptr<flann::IndexParams>& _indexParam
 void FlannBasedMatcher::add( InputArrayOfArrays _descriptors )
 {
     DescriptorMatcher::add( _descriptors );
-    std::vector<UMat> descriptors;
-    _descriptors.getUMatVector(descriptors);
 
-    for( size_t i = 0; i < descriptors.size(); i++ )
+    if( _descriptors.isUMatVector() )
     {
-        addedDescCount += descriptors[i].rows;
+        std::vector<UMat> descriptors;
+        _descriptors.getUMatVector( descriptors );
+
+        for( size_t i = 0; i < descriptors.size(); i++ )
+        {
+            addedDescCount += descriptors[i].rows;
+        }
+    }
+    else if( _descriptors.isUMat() )
+    {
+        addedDescCount += _descriptors.getUMat().rows;
+    }
+    else if( _descriptors.isMatVector() )
+    {
+        std::vector<Mat> descriptors;
+        _descriptors.getMatVector(descriptors);
+        for( size_t i = 0; i < descriptors.size(); i++ )
+        {
+            addedDescCount += descriptors[i].rows;
+        }
+    }
+    else if( _descriptors.isMat() )
+    {
+        addedDescCount += _descriptors.getMat().rows;
+    }
+    else
+    {
+        CV_Assert( _descriptors.isUMat() || _descriptors.isUMatVector() || _descriptors.isMat() || _descriptors.isMatVector() );
     }
 }
 

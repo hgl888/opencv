@@ -2215,7 +2215,7 @@ class PlanCache
             clAmdFftDim dim = dft_size.height == 1 || dft_rows ? CLFFT_1D : CLFFT_2D;
 
             size_t batchSize = dft_rows ? dft_size.height : 1;
-            size_t clLengthsIn[3] = { dft_size.width, dft_rows ? 1 : dft_size.height, 1 };
+            size_t clLengthsIn[3] = { (size_t)dft_size.width, dft_rows ? 1 : (size_t)dft_size.height, 1 };
             size_t clStridesIn[3] = { 1, 1, 1 };
             size_t clStridesOut[3]  = { 1, 1, 1 };
             int elemSize = doubleFP ? sizeof(double) : sizeof(float);
@@ -2934,7 +2934,7 @@ static bool ocl_mulSpectrums( InputArray _srcA, InputArray _srcB,
     k.args(ocl::KernelArg::ReadOnlyNoSize(A), ocl::KernelArg::ReadOnlyNoSize(B),
            ocl::KernelArg::WriteOnly(dst), rowsPerWI);
 
-    size_t globalsize[2] = { asize.width, (asize.height + rowsPerWI - 1) / rowsPerWI };
+    size_t globalsize[2] = { (size_t)asize.width, ((size_t)asize.height + rowsPerWI - 1) / rowsPerWI };
     return k.run(2, globalsize, NULL, false);
 }
 

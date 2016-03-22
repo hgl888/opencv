@@ -218,7 +218,24 @@ public:
         delete u;
     }
 };
+namespace
+{
+    MatAllocator* g_matAllocator = NULL;
+}
 
+
+MatAllocator* Mat::getDefaultAllocator()
+{
+    if (g_matAllocator == NULL)
+    {
+        g_matAllocator = getStdAllocator();
+    }
+    return g_matAllocator;
+}
+void Mat::setDefaultAllocator(MatAllocator* allocator)
+{
+    g_matAllocator = allocator;
+}
 MatAllocator* Mat::getStdAllocator()
 {
     CV_SINGLETON_LAZY_INIT(MatAllocator, new StdMatAllocator())
@@ -380,6 +397,14 @@ void Mat::create(int d, const int* _sizes, int _type)
             return;
     }
 
+    int _sizes_backup[CV_MAX_DIM]; // #5991
+    if (_sizes == (this->size.p))
+    {
+        for(i = 0; i < d; i++ )
+            _sizes_backup[i] = _sizes[i];
+        _sizes = _sizes_backup;
+    }
+
     release();
     if( d == 0 )
         return;
@@ -388,7 +413,7 @@ void Mat::create(int d, const int* _sizes, int _type)
 
     if( total() > 0 )
     {
-        MatAllocator *a = allocator, *a0 = getStdAllocator();
+        MatAllocator *a = allocator, *a0 = getDefaultAllocator();
 #ifdef HAVE_TGPU
         if( !a || a == tegra::getAllocator() )
             a = tegra::getAllocator(d, _sizes, _type);
@@ -426,7 +451,7 @@ void Mat::copySize(const Mat& m)
 void Mat::deallocate()
 {
     if(u)
-        (u->currAllocator ? u->currAllocator : allocator ? allocator : getStdAllocator())->unmap(u);
+        (u->currAllocator ? u->currAllocator : allocator ? allocator : getDefaultAllocator())->unmap(u);
     u = NULL;
 }
 
@@ -1429,7 +1454,14 @@ cuda::GpuMat _InputArray::getGpuMat() const
     CV_Error(cv::Error::StsNotImplemented, "getGpuMat is available only for cuda::GpuMat and cuda::HostMem");
     return cuda::GpuMat();
 }
-
+void _InputArray::getGpuMatVector(std::vector<cuda::GpuMat>& gpumv) const
+{
+    int k = kind();
+    if (k == STD_VECTOR_CUDA_GPU_MAT)
+    {
+        gpumv = *(std::vector<cuda::GpuMat>*)obj;
+    }
+}
 ogl::Buffer _InputArray::getOGlBuffer() const
 {
     int k = kind();
@@ -1521,6 +1553,15 @@ Size _InputArray::size(int i) const
             return vv.empty() ? Size() : Size((int)vv.size(), 1);
         CV_Assert( i < (int)vv.size() );
 
+        return vv[i].size();
+    }
+
+    if (k == STD_VECTOR_CUDA_GPU_MAT)
+    {
+        const std::vector<cuda::GpuMat>& vv = *(const std::vector<cuda::GpuMat>*)obj;
+        if (i < 0)
+            return vv.empty() ? Size() : Size((int)vv.size(), 1);
+        CV_Assert(i < (int)vv.size());
         return vv[i].size();
     }
 
@@ -1765,6 +1806,7 @@ size_t _InputArray::total(int i) const
         return vv[i].total();
     }
 
+
     if( k == STD_VECTOR_UMAT )
     {
         const std::vector<UMat>& vv = *(const std::vector<UMat>*)obj;
@@ -1818,6 +1860,18 @@ int _InputArray::type(int i) const
             return CV_MAT_TYPE(flags);
         }
         CV_Assert( i < (int)vv.size() );
+        return vv[i >= 0 ? i : 0].type();
+    }
+
+    if (k == STD_VECTOR_CUDA_GPU_MAT)
+    {
+        const std::vector<cuda::GpuMat>& vv = *(const std::vector<cuda::GpuMat>*)obj;
+        if (vv.empty())
+        {
+            CV_Assert((flags & FIXED_TYPE) != 0);
+            return CV_MAT_TYPE(flags);
+        }
+        CV_Assert(i < (int)vv.size());
         return vv[i >= 0 ? i : 0].type();
     }
 
@@ -1898,6 +1952,12 @@ bool _InputArray::empty() const
 
     if( k == CUDA_GPU_MAT )
         return ((const cuda::GpuMat*)obj)->empty();
+
+    if (k == STD_VECTOR_CUDA_GPU_MAT)
+    {
+        const std::vector<cuda::GpuMat>& vv = *(const std::vector<cuda::GpuMat>*)obj;
+        return vv.empty();
+    }
 
     if( k == CUDA_HOST_MEM )
         return ((const cuda::HostMem*)obj)->empty();
@@ -2015,6 +2075,13 @@ size_t _InputArray::offset(int i) const
         return (size_t)(m->data - m->datastart);
     }
 
+    if (k == STD_VECTOR_CUDA_GPU_MAT)
+    {
+        const std::vector<cuda::GpuMat>& vv = *(const std::vector<cuda::GpuMat>*)obj;
+        CV_Assert((size_t)i < vv.size());
+        return (size_t)(vv[i].data - vv[i].datastart);
+    }
+
     CV_Error(Error::StsNotImplemented, "");
     return 0;
 }
@@ -2059,6 +2126,12 @@ size_t _InputArray::step(int i) const
     {
         CV_Assert( i < 0 );
         return ((const cuda::GpuMat*)obj)->step;
+    }
+    if (k == STD_VECTOR_CUDA_GPU_MAT)
+    {
+        const std::vector<cuda::GpuMat>& vv = *(const std::vector<cuda::GpuMat>*)obj;
+        CV_Assert((size_t)i < vv.size());
+        return vv[i].step;
     }
 
     CV_Error(Error::StsNotImplemented, "");
@@ -2562,7 +2635,11 @@ void _OutputArray::release() const
         ((std::vector<UMat>*)obj)->clear();
         return;
     }
-
+    if (k == STD_VECTOR_CUDA_GPU_MAT)
+    {
+        ((std::vector<cuda::GpuMat>*)obj)->clear();
+        return;
+    }
     CV_Error(Error::StsNotImplemented, "Unknown/unsupported array type");
 }
 
@@ -2624,6 +2701,12 @@ cuda::GpuMat& _OutputArray::getGpuMatRef() const
     int k = kind();
     CV_Assert( k == CUDA_GPU_MAT );
     return *(cuda::GpuMat*)obj;
+}
+std::vector<cuda::GpuMat>& _OutputArray::getGpuMatVecRef() const
+{
+    int k = kind();
+    CV_Assert(k == STD_VECTOR_CUDA_GPU_MAT);
+    return *(std::vector<cuda::GpuMat>*)obj;
 }
 
 ogl::Buffer& _OutputArray::getOGlBufferRef() const
@@ -2831,7 +2914,7 @@ static bool ocl_setIdentity( InputOutputArray _m, const Scalar& s )
     k.args(ocl::KernelArg::WriteOnly(m, cn, kercn),
            ocl::KernelArg::Constant(Mat(1, 1, sctype, s)));
 
-    size_t globalsize[2] = { m.cols * cn / kercn, (m.rows + rowsPerWI - 1) / rowsPerWI };
+    size_t globalsize[2] = { (size_t)m.cols * cn / kercn, ((size_t)m.rows + rowsPerWI - 1) / rowsPerWI };
     return k.run(2, globalsize, NULL, false);
 }
 
@@ -3071,7 +3154,7 @@ static bool ocl_transpose( InputArray _src, OutputArray _dst )
                ocl::KernelArg::WriteOnlyNoSize(dst));
 
     size_t localsize[2]  = { TILE_DIM, BLOCK_ROWS };
-    size_t globalsize[2] = { src.cols, inplace ? (src.rows + rowsPerWI - 1) / rowsPerWI : (divUp(src.rows, TILE_DIM) * BLOCK_ROWS) };
+    size_t globalsize[2] = { (size_t)src.cols, inplace ? ((size_t)src.rows + rowsPerWI - 1) / rowsPerWI : (divUp((size_t)src.rows, TILE_DIM) * BLOCK_ROWS) };
 
     if (inplace && dev.isIntel())
     {
@@ -3576,8 +3659,8 @@ static bool ocl_reduce(InputArray _src, OutputArray _dst,
             k.args(ocl::KernelArg::ReadOnly(src),
                       ocl::KernelArg::WriteOnlyNoSize(dst));
 
-        size_t localSize[2] = { buf_cols, tileHeight};
-        size_t globalSize[2] = { buf_cols, src.rows };
+        size_t localSize[2] = { (size_t)buf_cols, (size_t)tileHeight};
+        size_t globalSize[2] = { (size_t)buf_cols, (size_t)src.rows };
         return k.run(2, globalSize, localSize, false);
     }
     else
@@ -4823,6 +4906,13 @@ void SparseMat::create(int d, const int* _sizes, int _type)
             clear();
             return;
         }
+    }
+    int _sizes_backup[CV_MAX_DIM]; // #5991
+    if (_sizes == hdr->size)
+    {
+        for(i = 0; i < d; i++ )
+            _sizes_backup[i] = _sizes[i];
+        _sizes = _sizes_backup;
     }
     release();
     flags = MAGIC_VAL | _type;

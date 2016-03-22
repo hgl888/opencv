@@ -187,7 +187,7 @@ static void onMouse(int event, int x, int y, int flags, void*)
         else
             rObs -= (float)0.1;
     }
-    float pi = (float)acos(-1.0);
+    float pi = static_cast<float>(CV_PI);
     if (thetaObs>pi)
     {
         thetaObs = -2 * pi + thetaObs;
@@ -282,7 +282,7 @@ static void DrawOpenGLMSER(Mat img, Mat result)
             break;
         if (key == 0x20)
             rotateEnable = !rotateEnable;
-        float	pi = (float)acos(-1);
+        float pi = static_cast<float>(CV_PI);
 
         switch (key) {
             case '5':
@@ -402,11 +402,18 @@ int main(int argc, char *argv[])
     vector<String> fileName;
     Mat imgOrig,img;
     Size blurSize(5,5);
-    if (argc==2)
+    cv::CommandLineParser parser(argc, argv, "{ help h | | }{ @input | | }");
+    if (parser.has("help"))
     {
-        fileName.push_back(argv[1]);
-        imgOrig = imread(fileName[0], IMREAD_GRAYSCALE);    blur(imgOrig, img, blurSize);
-
+        help();
+        return 0;
+    }
+    string input = parser.get<string>("@input");
+    if (!input.empty())
+    {
+        fileName.push_back(input);
+        imgOrig = imread(fileName[0], IMREAD_GRAYSCALE);
+        blur(imgOrig, img, blurSize);
     }
     else
     {
