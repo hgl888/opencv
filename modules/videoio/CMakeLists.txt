@@ -167,9 +167,22 @@ if(HAVE_GIGE_API)
   list(APPEND videoio_srcs ${CMAKE_CURRENT_LIST_DIR}/src/cap_giganetix.cpp)
 endif(HAVE_GIGE_API)
 
+if(HAVE_ARAVIS_API)
+  add_definitions(-DHAVE_ARAVIS_API)
+  ocv_include_directories(${ARAVIS_INCLUDE_PATH})
+  set(videoio_srcs ${CMAKE_CURRENT_LIST_DIR}/src/cap_aravis.cpp ${videoio_srcs})
+  list(APPEND VIDEOIO_LIBRARIES ${ARAVIS_LIBRARIES})
+  list(APPEND videoio_srcs ${CMAKE_CURRENT_LIST_DIR}/src/cap_aravis.cpp)
+endif(HAVE_ARAVIS_API)
+
 if(HAVE_AVFOUNDATION)
-  list(APPEND videoio_srcs ${CMAKE_CURRENT_LIST_DIR}/src/cap_avfoundation.mm)
-  list(APPEND VIDEOIO_LIBRARIES "-framework AVFoundation" "-framework QuartzCore")
+  if(IOS)
+    list(APPEND videoio_srcs ${CMAKE_CURRENT_LIST_DIR}/src/cap_avfoundation.mm)
+    list(APPEND VIDEOIO_LIBRARIES "-framework AVFoundation" "-framework QuartzCore")
+  else()
+    list(APPEND videoio_srcs ${CMAKE_CURRENT_LIST_DIR}/src/cap_avfoundation_mac.mm)
+    list(APPEND VIDEOIO_LIBRARIES "-framework Cocoa" "-framework Accelerate" "-framework AVFoundation" "-framework CoreGraphics" "-framework CoreMedia" "-framework CoreVideo" "-framework QuartzCore")
+  endif()
 endif()
 
 if(HAVE_QUICKTIME)
@@ -195,7 +208,11 @@ if(IOS)
        ${CMAKE_CURRENT_LIST_DIR}/src/cap_ios_abstract_camera.mm
        ${CMAKE_CURRENT_LIST_DIR}/src/cap_ios_photo_camera.mm
        ${CMAKE_CURRENT_LIST_DIR}/src/cap_ios_video_camera.mm)
+
   list(APPEND VIDEOIO_LIBRARIES "-framework Accelerate" "-framework AVFoundation" "-framework CoreGraphics" "-framework CoreImage" "-framework CoreMedia" "-framework CoreVideo" "-framework QuartzCore" "-framework AssetsLibrary")
+  if(APPLE_FRAMEWORK)
+    list(APPEND VIDEOIO_LIBRARIES "-framework UIKit")
+  endif()
 endif()
 
 if(WIN32)
@@ -225,10 +242,6 @@ ocv_create_module(${VIDEOIO_LIBRARIES})
 macro(ocv_videoio_configure_target)
 if(APPLE)
   add_apple_compiler_options(the_module)
-endif()
-
-if(BUILD_SHARED_LIBS)
-  add_definitions(-DVIDEOIO_EXPORTS)
 endif()
 
 if(MSVC)

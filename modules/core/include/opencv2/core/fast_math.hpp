@@ -42,8 +42,8 @@
 //
 //M*/
 
-#ifndef __OPENCV_CORE_FAST_MATH_HPP__
-#define __OPENCV_CORE_FAST_MATH_HPP__
+#ifndef OPENCV_CORE_FAST_MATH_HPP
+#define OPENCV_CORE_FAST_MATH_HPP
 
 #include "opencv2/core/cvdef.h"
 
@@ -54,12 +54,14 @@
 *                                      fast math                                         *
 \****************************************************************************************/
 
-#if defined __BORLANDC__
-#  include <fastmath.h>
-#elif defined __cplusplus
+#ifdef __cplusplus
 #  include <cmath>
 #else
-#  include <math.h>
+#  ifdef __BORLANDC__
+#    include <fastmath.h>
+#  else
+#    include <math.h>
+#  endif
 #endif
 
 #ifdef HAVE_TEGRA_OPTIMIZATION
@@ -71,6 +73,7 @@
     #define ARM_ROUND(_value, _asm_string) \
         int res; \
         float temp; \
+        (void)temp; \
         asm(_asm_string : [res] "=r" (res), [temp] "=w" (temp) : [value] "w" (_value)); \
         return res
     // 2. version for double
