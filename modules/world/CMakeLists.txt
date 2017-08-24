@@ -1,4 +1,4 @@
-set(the_description "All the selected OpenCV modules in a single binary")
+set(the_description "All OpenCV modules")
 set(OPENCV_MODULE_IS_PART_OF_WORLD FALSE)
 set(BUILD_opencv_world_INIT OFF)
 
@@ -24,6 +24,7 @@ if(NOT OPENCV_INITIAL_PASS)
 
   message(STATUS "Processing WORLD modules...")
   foreach(m ${OPENCV_MODULES_BUILD})
+    set(the_module ${m})
     if(OPENCV_MODULE_${m}_IS_PART_OF_WORLD)
       message(STATUS "    module ${m}...")
       set(CMAKE_CURRENT_SOURCE_DIR "${OPENCV_MODULE_${m}_LOCATION}")

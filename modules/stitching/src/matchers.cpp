@@ -51,6 +51,10 @@ using namespace cv::cuda;
 using xfeatures2d::SURF;
 #endif
 
+#ifdef HAVE_OPENCV_CUDAIMGPROC
+#  include "opencv2/cudaimgproc.hpp"
+#endif
+
 namespace {
 
 struct DistIdxPair
@@ -558,10 +562,7 @@ AKAZEFeaturesFinder::AKAZEFeaturesFinder(int descriptor_type,
 void AKAZEFeaturesFinder::find(InputArray image, detail::ImageFeatures &features)
 {
     CV_Assert((image.type() == CV_8UC3) || (image.type() == CV_8UC1));
-    Mat descriptors;
-    UMat uimage = image.getUMat();
-    akaze->detectAndCompute(uimage, UMat(), features.keypoints, descriptors);
-    features.descriptors = descriptors.getUMat(ACCESS_READ);
+    akaze->detectAndCompute(image, noArray(), features.keypoints, features.descriptors);
 }
 
 #ifdef HAVE_OPENCV_XFEATURES2D
@@ -586,7 +587,12 @@ void SurfFeaturesFinderGpu::find(InputArray image, ImageFeatures &features)
     image_.upload(image);
 
     ensureSizeIsEnough(image.size(), CV_8UC1, gray_image_);
+
+#ifdef HAVE_OPENCV_CUDAIMGPROC
+    cv::cuda::cvtColor(image_, gray_image_, COLOR_BGR2GRAY);
+#else
     cvtColor(image_, gray_image_, COLOR_BGR2GRAY);
+#endif
 
     surf_.nOctaves = num_octaves_;
     surf_.nOctaveLayers = num_layers_;

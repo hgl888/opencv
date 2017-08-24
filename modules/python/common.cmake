@@ -32,12 +32,16 @@ foreach(m ${OPENCV_PYTHON_MODULES})
 endforeach(m)
 
 # header blacklist
-ocv_list_filterout(opencv_hdrs "modules/.*.h$")
+ocv_list_filterout(opencv_hdrs "modules/.*\\\\.h$")
 ocv_list_filterout(opencv_hdrs "modules/core/.*/cuda")
 ocv_list_filterout(opencv_hdrs "modules/cuda.*")
 ocv_list_filterout(opencv_hdrs "modules/cudev")
 ocv_list_filterout(opencv_hdrs "modules/core/.*/hal/")
-ocv_list_filterout(opencv_hdrs "modules/.*/detection_based_tracker.hpp") # Conditional compilation
+ocv_list_filterout(opencv_hdrs "modules/.+/utils/.*")
+ocv_list_filterout(opencv_hdrs "modules/.*\\\\.inl\\\\.h*")
+ocv_list_filterout(opencv_hdrs "modules/.*_inl\\\\.h*")
+ocv_list_filterout(opencv_hdrs "modules/.*\\\\.details\\\\.h*")
+ocv_list_filterout(opencv_hdrs "modules/.*/detection_based_tracker\\\\.hpp") # Conditional compilation
 
 set(cv2_generated_hdrs
     "${CMAKE_CURRENT_BINARY_DIR}/pyopencv_generated_include.h"
@@ -46,7 +50,8 @@ set(cv2_generated_hdrs
     "${CMAKE_CURRENT_BINARY_DIR}/pyopencv_generated_type_reg.h"
     "${CMAKE_CURRENT_BINARY_DIR}/pyopencv_generated_ns_reg.h")
 
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/headers.txt" "${opencv_hdrs}")
+string(REPLACE ";" "\n" opencv_hdrs_ "${opencv_hdrs}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/headers.txt" "${opencv_hdrs_}")
 add_custom_command(
    OUTPUT ${cv2_generated_hdrs}
    COMMAND ${PYTHON_DEFAULT_EXECUTABLE} "${PYTHON_SOURCE_DIR}/src2/gen2.py" ${CMAKE_CURRENT_BINARY_DIR} "${CMAKE_CURRENT_BINARY_DIR}/headers.txt" "${PYTHON}"
@@ -67,12 +72,12 @@ if(APPLE)
   set_target_properties(${the_module} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
 elseif(WIN32 OR OPENCV_FORCE_PYTHON_LIBS)
   if(${PYTHON}_DEBUG_LIBRARIES AND NOT ${PYTHON}_LIBRARIES MATCHES "optimized.*debug")
-    ocv_target_link_libraries(${the_module} debug ${${PYTHON}_DEBUG_LIBRARIES} optimized ${${PYTHON}_LIBRARIES})
+    ocv_target_link_libraries(${the_module} LINK_PRIVATE debug ${${PYTHON}_DEBUG_LIBRARIES} optimized ${${PYTHON}_LIBRARIES})
   else()
-    ocv_target_link_libraries(${the_module} ${${PYTHON}_LIBRARIES})
+    ocv_target_link_libraries(${the_module} LINK_PRIVATE ${${PYTHON}_LIBRARIES})
   endif()
 endif()
-ocv_target_link_libraries(${the_module} ${OPENCV_MODULE_${the_module}_DEPS})
+ocv_target_link_libraries(${the_module} LINK_PRIVATE ${OPENCV_MODULE_${the_module}_DEPS})
 
 if(DEFINED ${PYTHON}_CVPY_SUFFIX)
   set(CVPY_SUFFIX "${${PYTHON}_CVPY_SUFFIX}")
@@ -113,6 +118,7 @@ if(MSVC AND NOT ENABLE_NOISY_WARNINGS)
 endif()
 
 ocv_warnings_disable(CMAKE_CXX_FLAGS -Woverloaded-virtual -Wunused-private-field)
+ocv_warnings_disable(CMAKE_CXX_FLAGS -Wundef) # accurate guard via #pragma doesn't work (C++ preprocessor doesn't handle #pragma)
 
 if(MSVC AND NOT BUILD_SHARED_LIBS)
   set_target_properties(${the_module} PROPERTIES LINK_FLAGS "/NODEFAULTLIB:atlthunk.lib /NODEFAULTLIB:atlsd.lib /DEBUG")

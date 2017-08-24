@@ -116,6 +116,7 @@ static void* WinGetProcAddress(const char* name)
                 else if (GetProcAddress(handle, OPENCL_FUNC_TO_CHECK_1_1) == NULL)
                 {
                     fprintf(stderr, ERROR_MSG_INVALID_VERSION);
+                    FreeLibrary(handle);
                     handle = NULL;
                 }
             }
@@ -133,6 +134,24 @@ static void* WinGetProcAddress(const char* name)
 #include <dlfcn.h>
 #include <stdio.h>
 
+static void *GetHandle(const char *file)
+{
+    void *handle;
+
+    handle = dlopen(file, RTLD_LAZY | RTLD_GLOBAL);
+    if (!handle)
+        return NULL;
+
+    if (dlsym(handle, OPENCL_FUNC_TO_CHECK_1_1) == NULL)
+    {
+        fprintf(stderr, ERROR_MSG_INVALID_VERSION);
+        dlclose(handle);
+        return NULL;
+    }
+
+    return handle;
+}
+
 static void* GetProcAddress(const char* name)
 {
     static bool initialized = false;
@@ -142,20 +161,18 @@ static void* GetProcAddress(const char* name)
         cv::AutoLock lock(cv::getInitializationMutex());
         if (!initialized)
         {
-            const char* path = "libOpenCL.so";
             const char* envPath = getenv("OPENCV_OPENCL_RUNTIME");
             if (envPath)
-                path = envPath;
-            handle = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
-            if (handle == NULL)
             {
-                if (envPath)
+                handle = GetHandle(envPath);
+                if (!handle)
                     fprintf(stderr, ERROR_MSG_CANT_LOAD);
             }
-            else if (dlsym(handle, OPENCL_FUNC_TO_CHECK_1_1) == NULL)
+            else
             {
-                fprintf(stderr, ERROR_MSG_INVALID_VERSION);
-                handle = NULL;
+                handle = GetHandle("libOpenCL.so");
+                if (!handle)
+                    handle = GetHandle("libOpenCL.so.1");
             }
             initialized = true;
         }
@@ -257,14 +274,14 @@ static void* opencl_check_fn(int ID)
     const struct DynamicFnEntry* e = NULL;
     if (ID < CUSTOM_FUNCTION_ID)
     {
-        assert(ID >= 0 && ID < (int)(sizeof(opencl_fn_list)/sizeof(opencl_fn_list[0])));
+        CV_Assert(ID >= 0 && ID < (int)(sizeof(opencl_fn_list)/sizeof(opencl_fn_list[0])));
         e = opencl_fn_list[ID];
     }
 #ifdef HAVE_OPENCL_SVM
     else if (ID >= SVM_FUNCTION_ID_START && ID < SVM_FUNCTION_ID_END)
     {
         ID = ID - SVM_FUNCTION_ID_START;
-        assert(ID >= 0 && ID < (int)(sizeof(opencl_svm_fn_list)/sizeof(opencl_svm_fn_list[0])));
+        CV_Assert(ID >= 0 && ID < (int)(sizeof(opencl_svm_fn_list)/sizeof(opencl_svm_fn_list[0])));
         e = opencl_svm_fn_list[ID];
     }
 #endif
